@@ -140,7 +140,7 @@ class ColumnSelectionDialog(QDialog):
 
         # Generate new filename with datestamp prefix (to prevent overwriting the original)
         filename = os.path.basename(self.parent().file_path)
-        new_filename = f"{datetime.now().strftime('%Y%m%d')}_{filename}"
+        new_filename = f"{datetime.now().strftime('%d.%m.%Y')}_{filename}"
         new_filepath = os.path.join(os.path.dirname(self.parent().file_path), new_filename)
 
         # Save the processed data to a new Excel file
