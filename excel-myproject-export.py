@@ -1,201 +1,156 @@
 import sys
-import os
 import pandas as pd
-from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QVBoxLayout, QWidget, QLabel, QPushButton, QFileDialog,
-    QDialog, QScrollArea, QCheckBox, QSpinBox, QHBoxLayout, QGridLayout, QMessageBox
-)
-from PyQt5.QtCore import Qt, QDateTime
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QDialog, QCheckBox, QHBoxLayout, QLabel, QScrollArea
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFont, QDragEnterEvent, QDropEvent
+import os
+from datetime import datetime
 
-
-def process_excel(file_path, selected_columns, column_widths, wrap_text_columns, output_path):
-    try:
-        # Read the Excel file
-        df = pd.read_excel(file_path, header=None)
-
-        # Filter columns
-        df_filtered = df.iloc[:, selected_columns]
-
-        # Create Excel writer
-        writer = pd.ExcelWriter(output_path, engine='xlsxwriter')
-        df_filtered.to_excel(writer, index=False, header=False)
-
-        # Format Excel file
-        workbook = writer.book
-        worksheet = writer.sheets['Sheet1']
-
-        for idx, col_idx in enumerate(selected_columns):
-            col_width = column_widths.get(col_idx, 10)
-            wrap = wrap_text_columns.get(col_idx, False)
-            col_letter = chr(65 + idx)  # Map index to Excel column letter
-
-            # Set column width
-            worksheet.set_column(f'{col_letter}:{col_letter}', col_width)
-
-            # Set text wrapping
-            if wrap:
-                format_wrap = workbook.add_format({'text_wrap': True})
-                worksheet.set_column(f'{col_letter}:{col_letter}', None, format_wrap)
-
-        writer.save()
-
-    except Exception as e:
-        with open('error_log.txt', 'a') as error_log:
-            error_log.write(f"Error processing file {file_path}: {str(e)}\n")
-
-
-class ColumnSelectionDialog(QDialog):
-    def __init__(self, columns, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Select Columns and Options")
-        self.selected_columns = []
-        self.column_widths = {}
-        self.wrap_text_columns = {}
-
-        layout = QVBoxLayout()
-        self.checkboxes = []
-        self.width_spinners = []
-        self.wrap_checkboxes = []
-
-        # Scrollable area for checkboxes
-        scroll_area = QScrollArea()
-        scroll_widget = QWidget()
-        grid_layout = QGridLayout()
-
-        # Add columns as checkboxes with options
-        for idx, col in enumerate(columns):
-            col_checkbox = QCheckBox(f"Column {col}")
-            col_checkbox.setChecked(True)
-            self.checkboxes.append(col_checkbox)
-
-            width_spinner = QSpinBox()
-            width_spinner.setMinimum(5)
-            width_spinner.setMaximum(100)
-            width_spinner.setValue(10)
-            self.width_spinners.append(width_spinner)
-
-            wrap_checkbox = QCheckBox("Wrap Text")
-            self.wrap_checkboxes.append(wrap_checkbox)
-
-            grid_layout.addWidget(col_checkbox, idx, 0)
-            grid_layout.addWidget(width_spinner, idx, 1)
-            grid_layout.addWidget(wrap_checkbox, idx, 2)
-
-        scroll_widget.setLayout(grid_layout)
-        scroll_area.setWidget(scroll_widget)
-        scroll_area.setWidgetResizable(True)
-
-        # Add Select All and Unselect All buttons
-        button_layout = QHBoxLayout()
-        self.select_all_button = QPushButton("Select All")
-        self.unselect_all_button = QPushButton("Unselect All")
-        button_layout.addWidget(self.select_all_button)
-        button_layout.addWidget(self.unselect_all_button)
-
-        self.select_all_button.clicked.connect(self.select_all)
-        self.unselect_all_button.clicked.connect(self.unselect_all)
-
-        # Add Proceed button
-        self.proceed_button = QPushButton("Proceed")
-        self.proceed_button.clicked.connect(self.accept)
-
-        layout.addWidget(scroll_area)
-        layout.addLayout(button_layout)
-        layout.addWidget(self.proceed_button)
-        self.setLayout(layout)
-
-    def select_all(self):
-        for checkbox in self.checkboxes:
-            checkbox.setChecked(True)
-
-    def unselect_all(self):
-        for checkbox in self.checkboxes:
-            checkbox.setChecked(False)
-
-    def accept(self):
-        self.selected_columns = [idx for idx, cb in enumerate(self.checkboxes) if cb.isChecked()]
-        self.column_widths = {idx: sp.value() for idx, sp in enumerate(self.width_spinners)}
-        self.wrap_text_columns = {idx: cb.isChecked() for idx, cb in enumerate(self.wrap_checkboxes)}
-        super().accept()
-
-
-class MainWindow(QMainWindow):
+class ExcelProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Excel Column Filter")
-        self.setGeometry(200, 200, 400, 200)
+        self.setWindowTitle("MyProject Excel Column Processor")
+        self.setGeometry(100, 100, 600, 400)
 
-        layout = QVBoxLayout()
-        self.label = QLabel("Drag and Drop Excel File Here")
-        self.label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.label)
-
-        self.process_button = QPushButton("Process")
-        self.process_button.setEnabled(False)
-        self.process_button.clicked.connect(self.process_file)
-        layout.addWidget(self.process_button)
-
-        central_widget = QWidget()
-        central_widget.setLayout(layout)
-        self.setCentralWidget(central_widget)
-
-        self.file_path = None
+        # Enable drag and drop
         self.setAcceptDrops(True)
 
-    def dragEnterEvent(self, event):
+        self.error_log_file = "error_log.txt"
+        self.file_path = None
+        self.excel_data = None
+        self.columns = []
+        self.dialog = None
+
+        # Layout setup
+        self.layout = QVBoxLayout(self)
+
+        # Notice Label
+        self.notice_label = QLabel("Drag and drop an MyProject Excel file here")
+        self.notice_label.setAlignment(Qt.AlignCenter)
+        self.notice_label.setFont(QFont("Arial", 14))
+        self.layout.addWidget(self.notice_label)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             event.accept()
         else:
             event.ignore()
 
-    def dropEvent(self, event):
-        urls = event.mimeData().urls()
-        if urls:
-            self.file_path = urls[0].toLocalFile()
-            if self.file_path.endswith('.xlsx'):
-                self.label.setText(f"File Selected: {os.path.basename(self.file_path)}")
-                self.process_button.setEnabled(True)
-            else:
-                QMessageBox.warning(self, "Invalid File", "Please drop a valid Excel file.")
+    def dropEvent(self, event: QDropEvent):
+        file_path = event.mimeData().urls()[0].toLocalFile()
+        if file_path.lower().endswith(('.xls', '.xlsx')):
+            self.file_path = file_path
+            try:
+                self.excel_data = pd.read_excel(self.file_path, header=None)
+                self.columns = list(self.excel_data.iloc[4])  # Row 5 is index 4
+                self.show_column_selection_dialog()
+            except Exception as e:
+                self.log_error(f"Error reading the file: {str(e)}")
 
-    def process_file(self):
-        if not self.file_path:
-            QMessageBox.warning(self, "Error", "No file selected.")
-            return
+    def show_column_selection_dialog(self):
+        if self.dialog:
+            self.dialog.close()
 
+        self.dialog = ColumnSelectionDialog(self.columns, self)
+        self.dialog.exec_()
+
+    def log_error(self, message):
+        with open(self.error_log_file, 'a') as f:
+            f.write(f"{datetime.now()}: {message}\n")
+
+
+class ColumnSelectionDialog(QDialog):
+    def __init__(self, columns, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Columns to Retain")
+        self.setGeometry(150, 150, 600, 400)
+
+        self.columns = columns
+        self.selected_columns = {}
+
+        self.layout = QVBoxLayout(self)
+
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+
+        self.scroll_content = QWidget()
+        self.scroll_content_layout = QVBoxLayout(self.scroll_content)
+
+        for idx, column in enumerate(self.columns):
+            row_layout = QHBoxLayout()
+
+            checkbox = QCheckBox(f"Column {idx + 1}: {column}")
+            self.selected_columns[idx] = checkbox
+            row_layout.addWidget(checkbox)
+
+            self.scroll_content_layout.addLayout(row_layout)
+
+        self.scroll_area.setWidget(self.scroll_content)
+        self.layout.addWidget(self.scroll_area)
+
+        button_layout = QHBoxLayout()
+
+        self.select_all_button = QPushButton("Select All")
+        self.select_all_button.clicked.connect(self.select_all_columns)
+        button_layout.addWidget(self.select_all_button)
+
+        self.unselect_all_button = QPushButton("Unselect All")
+        self.unselect_all_button.clicked.connect(self.unselect_all_columns)
+        button_layout.addWidget(self.unselect_all_button)
+
+        self.layout.addLayout(button_layout)
+
+        self.proceed_button = QPushButton("Proceed")
+        self.proceed_button.clicked.connect(self.proceed)
+        self.layout.addWidget(self.proceed_button)
+
+    def select_all_columns(self):
+        for idx, checkbox in self.selected_columns.items():
+            checkbox.setChecked(True)
+
+    def unselect_all_columns(self):
+        for idx, checkbox in self.selected_columns.items():
+            checkbox.setChecked(False)
+
+    def proceed(self):
         try:
-            df = pd.read_excel(self.file_path, header=None)
-            columns = df.iloc[4, :].tolist()
+            retained_columns = [col_idx for col_idx, checkbox in self.selected_columns.items() if checkbox.isChecked()]
+            updated_data = self.process_columns(retained_columns)
 
-            dialog = ColumnSelectionDialog(columns, self)
-            if dialog.exec_() == QDialog.Accepted:
-                selected_columns = dialog.selected_columns
-                column_widths = dialog.column_widths
-                wrap_text_columns = dialog.wrap_text_columns
+            # Generate new filename with datestamp prefix (to prevent overwriting the original)
+            filename = os.path.basename(self.parent().file_path)
+            new_filename = f"{datetime.now().strftime('%Y%m%d')}_{filename}"
+            new_filepath = os.path.join(os.path.dirname(self.parent().file_path), new_filename)
 
-                output_path = os.path.join(
-                    os.path.dirname(self.file_path),
-                    f"{QDateTime.currentDateTime().toString('yyyyMMdd_HHmmss')}_{os.path.basename(self.file_path)}"
-                )
-
-                process_excel(
-                    self.file_path,
-                    selected_columns,
-                    column_widths,
-                    wrap_text_columns,
-                    output_path
-                )
-
-                QMessageBox.information(self, "Success", f"Processed file saved as: {output_path}")
-
+            # Save to new Excel file without overwriting the original
+            updated_data.to_excel(new_filepath, index=False, header=False)
+            self.accept()  # Close dialog only after file is processed
+            print(f"New file saved as: {new_filepath}")  # You can remove this later
         except Exception as e:
-            with open('error_log.txt', 'a') as error_log:
-                error_log.write(f"Error processing file {self.file_path}: {str(e)}\n")
-            QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
+            self.parent().log_error(f"Error during processing: {str(e)}")
+
+    def process_columns(self, retained_columns):
+        data = self.parent().excel_data.copy()
+
+        # Retain selected columns
+        data = data.iloc[:, retained_columns]
+
+        # Remove the first 4 rows (rows before column names)
+        data = data.iloc[4:].reset_index(drop=True)  # Remove the first 4 rows and reset index
+
+        # Generate new filename with datestamp prefix (to prevent overwriting the original)
+        filename = os.path.basename(self.parent().file_path)
+        new_filename = f"{datetime.now().strftime('%Y%m%d')}_{filename}"
+        new_filepath = os.path.join(os.path.dirname(self.parent().file_path), new_filename)
+
+        # Save the processed data to a new Excel file
+        data.to_excel(new_filepath, index=False, header=False)
+        
+        return data
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = MainWindow()
+    window = ExcelProcessorApp()
     window.show()
     sys.exit(app.exec_())
