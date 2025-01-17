@@ -1,0 +1,135 @@
+import sys
+import os
+import pandas as pd
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QVBoxLayout, QPushButton, QLabel, QFileDialog,
+    QDialog, QCheckBox, QSpinBox, QHBoxLayout, QWidget, QMessageBox)
+from PyQt5.QtCore import Qt
+
+class ColumnSelectionDialog(QDialog):
+    def __init__(self, column_headers, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Column Selection")
+        self.selected_columns = []
+        self.column_widths = {}
+        self.wrap_text_columns = []
+
+        self.layout = QVBoxLayout()
+
+        self.checkboxes = {}
+        self.width_inputs = {}
+        self.wrap_checkboxes = {}
+
+        for idx, header in enumerate(column_headers):
+            row_layout = QHBoxLayout()
+
+            checkbox = QCheckBox(f"Column {idx + 1}: {header}")
+            self.checkboxes[idx] = checkbox
+            row_layout.addWidget(checkbox)
+
+            width_input = QSpinBox()
+            width_input.setRange(10, 100)
+            width_input.setValue(20)
+            self.width_inputs[idx] = width_input
+            row_layout.addWidget(QLabel("Width:"))
+            row_layout.addWidget(width_input)
+
+            wrap_checkbox = QCheckBox("Wrap Text")
+            self.wrap_checkboxes[idx] = wrap_checkbox
+            row_layout.addWidget(wrap_checkbox)
+
+            self.layout.addLayout(row_layout)
+
+        proceed_button = QPushButton("Proceed")
+        proceed_button.clicked.connect(self.accept)
+        self.layout.addWidget(proceed_button)
+
+        self.setLayout(self.layout)
+
+    def accept(self):
+        self.selected_columns = [idx for idx, checkbox in self.checkboxes.items() if checkbox.isChecked()]
+        self.column_widths = {idx: self.width_inputs[idx].value() for idx in self.selected_columns}
+        self.wrap_text_columns = [idx for idx, checkbox in self.wrap_checkboxes.items() if checkbox.isChecked()]
+        super().accept()
+
+class ExcelProcessorApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Excel Processor")
+        self.setGeometry(100, 100, 400, 200)
+
+        self.layout = QVBoxLayout()
+
+        self.label = QLabel("Drag and drop an Excel file here")
+        self.label.setAlignment(Qt.AlignCenter)
+        self.layout.addWidget(self.label)
+
+        self.process_button = QPushButton("Process")
+        self.process_button.setEnabled(False)
+        self.process_button.clicked.connect(self.process_file)
+        self.layout.addWidget(self.process_button)
+
+        container = QWidget()
+        container.setLayout(self.layout)
+        self.setCentralWidget(container)
+
+        self.setAcceptDrops(True)
+        self.file_path = None
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.accept()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        if urls:
+            self.file_path = urls[0].toLocalFile()
+            if self.file_path.endswith(('.xls', '.xlsx')):
+                self.label.setText(f"Loaded File: {os.path.basename(self.file_path)}")
+                self.process_button.setEnabled(True)
+            else:
+                self.label.setText("Invalid file format. Please drop an Excel file.")
+                self.process_button.setEnabled(False)
+
+    def process_file(self):
+        try:
+            df = pd.read_excel(self.file_path, header=None)
+            column_headers = df.iloc[4].fillna('').tolist()
+
+            dialog = ColumnSelectionDialog(column_headers, self)
+            if dialog.exec_() == QDialog.Accepted:
+                selected_columns = dialog.selected_columns
+                column_widths = dialog.column_widths
+                wrap_text_columns = dialog.wrap_text_columns
+
+                df = df.iloc[5:, selected_columns]
+                output_file = os.path.join(
+                    os.path.dirname(self.file_path),
+                    f"{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}_processed_{os.path.basename(self.file_path)}"
+                )
+
+                with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
+                    df.to_excel(writer, index=False, header=False)
+                    workbook = writer.book
+                    worksheet = writer.sheets['Sheet1']
+
+                    for idx, col_idx in enumerate(selected_columns):
+                        col_letter = chr(65 + idx)
+                        worksheet.set_column(f'{col_letter}:{col_letter}', column_widths[col_idx])
+                        if col_idx in wrap_text_columns:
+                            cell_format = workbook.add_format({'text_wrap': True, 'valign': 'top'})
+                            worksheet.set_column(f'{col_letter}:{col_letter}', None, cell_format)
+
+                QMessageBox.information(self, "Success", f"File processed and saved as {output_file}")
+        except Exception as e:
+            with open("error_log.txt", "a") as log_file:
+                log_file.write(f"Error processing file {self.file_path}: {str(e)}\n")
+            QMessageBox.critical(self, "Error", "An error occurred during processing. Check error_log.txt.")
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    main_window = ExcelProcessorApp()
+    main_window.show()
+    sys.exit(app.exec_())

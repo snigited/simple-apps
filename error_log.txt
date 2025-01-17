@@ -1,0 +1,4 @@
+2025-01-17 17:19:31,148 - ERROR - Failed to process Excel file: "None of [Index(['NAMA BUTIRAN', 'KOD PROJEK', 'NAMA PROJEK'], dtype='object')] are in the [columns]"
+2025-01-17 17:23:46,699 - ERROR - Failed to process Excel file: 'KEMENTERIAN' is not in list
+Error processing file D:/Office/Python/simple-apps/17.1.2025 - SENARAI KELULUSAN PROJEK RMK12 MENGIKUT RP SEMASA.xlsx: No module named 'xlsxwriter'
+Error processing file D:/Office/Python/simple-apps/17.1.2025 - SENARAI KELULUSAN PROJEK RMK12 MENGIKUT RP SEMASA.xlsx: No module named 'xlsxwriter'
